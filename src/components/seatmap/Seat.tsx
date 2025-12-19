@@ -58,18 +58,23 @@ function Seat({ seatId, studentName, studentId, isAssigned, status, hasNote, onC
         flex flex-col items-center justify-center
       `}
     >
+      {/* Seat ID */}
+      <span className="text-[0.45rem] leading-tight text-gray-500">
+        {seatId}
+      </span>
+
       {/* Student ID */}
-      <span className="font-bold text-[0.55rem] leading-tight">
-        {studentId || seatId}
+      <span className="font-bold text-[0.5rem] leading-tight">
+        {studentId}
       </span>
 
       {/* Student Name */}
-      <span className="text-[0.55rem] leading-tight truncate max-w-full px-0.5 font-medium">
+      <span className="text-[0.5rem] leading-tight truncate max-w-full px-0.5 font-medium">
         {studentName || ''}
       </span>
 
       {/* Status Label */}
-      <span className={`text-[0.5rem] leading-tight font-semibold mt-0.5
+      <span className={`text-[0.45rem] leading-tight font-semibold
         ${status === 'present' ? 'text-green-600' : ''}
         ${status === 'absent' ? 'text-red-600' : ''}
         ${status === 'late' ? 'text-amber-600' : ''}
