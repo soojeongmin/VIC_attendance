@@ -1,5 +1,12 @@
 import { useNavigate } from 'react-router-dom'
+import { useEffect, useState } from 'react'
 import Header from '../components/layout/Header'
+
+interface CurrentStaff {
+  name: string
+  grade: number
+  date: string
+}
 
 // Zone configuration based on legacy code
 const GRADES = [
@@ -36,10 +43,40 @@ const GRADES = [
 
 export default function HomePage() {
   const navigate = useNavigate()
+  const [currentStaff, setCurrentStaff] = useState<CurrentStaff | null>(null)
+
+  useEffect(() => {
+    // Check for current staff in sessionStorage
+    const staffData = sessionStorage.getItem('currentStaff')
+    if (staffData) {
+      const staff = JSON.parse(staffData) as CurrentStaff
+      // Check if it's still today's date
+      const today = new Date().toISOString().split('T')[0]
+      if (staff.date === today) {
+        setCurrentStaff(staff)
+      } else {
+        // Clear outdated staff data
+        sessionStorage.removeItem('currentStaff')
+      }
+    }
+  }, [])
 
   const handleZoneClick = (zoneId: string) => {
     navigate(`/attendance/${zoneId}`)
   }
+
+  const handleChangeStaff = () => {
+    sessionStorage.removeItem('currentStaff')
+    navigate('/start')
+  }
+
+  // Get today's date in Korean format
+  const today = new Date().toLocaleDateString('ko-KR', {
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    weekday: 'short',
+  })
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -54,6 +91,30 @@ export default function HomePage() {
           </button>
         }
       />
+
+      {/* Current staff info bar */}
+      <div className="bg-primary-500 text-white px-4 py-3">
+        <div className="container mx-auto flex justify-between items-center">
+          <div>
+            <span className="text-sm opacity-80">{today}</span>
+            {currentStaff ? (
+              <p className="font-semibold">
+                담당자: {currentStaff.name} ({currentStaff.grade}학년)
+              </p>
+            ) : (
+              <p className="font-semibold text-yellow-200">
+                담당자 미선택
+              </p>
+            )}
+          </div>
+          <button
+            onClick={handleChangeStaff}
+            className="px-3 py-1 text-sm bg-white/20 rounded-lg hover:bg-white/30"
+          >
+            {currentStaff ? '담당자 변경' : '담당자 선택'}
+          </button>
+        </div>
+      </div>
 
       <main className="container mx-auto px-4 py-6 space-y-8">
         {GRADES.map((gradeInfo) => (

@@ -2,15 +2,13 @@ import { useMemo } from 'react'
 import Seat from './Seat'
 import type { AttendanceRecord } from '../../types'
 import { SEAT_LAYOUTS } from '../../config/seatLayouts'
+import { getStudentBySeatId } from '../../config/mockStudents'
 
 interface SeatMapProps {
   zoneId: string
   attendanceRecords: Map<string, AttendanceRecord>
   onSeatClick: (seatId: string) => void
 }
-
-// Mock student data - will be replaced with Supabase data
-const mockStudentMap: Record<string, { name: string; studentId: string }> = {}
 
 export default function SeatMap({
   zoneId,
@@ -53,10 +51,11 @@ export default function SeatMap({
 
                 // Regular seat
                 const seatId = cell as string
-                const student = mockStudentMap[seatId]
-                // Use seatId as key when no student data
-                const recordKey = student?.studentId || seatId
-                const record = attendanceRecords.get(recordKey)
+                const student = getStudentBySeatId(seatId)
+                const isAssigned = student !== null
+
+                // Use seatId for record lookup
+                const record = attendanceRecords.get(seatId)
 
                 return (
                   <Seat
@@ -64,6 +63,7 @@ export default function SeatMap({
                     seatId={seatId}
                     studentName={student?.name}
                     studentId={student?.studentId}
+                    isAssigned={isAssigned}
                     status={record?.status || 'unchecked'}
                     hasNote={!!record?.note}
                     onClick={() => onSeatClick(seatId)}

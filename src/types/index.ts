@@ -21,9 +21,17 @@ export interface Student {
 // Attendance record for UI
 export interface AttendanceRecord {
   studentId: string
-  status: 'present' | 'absent' | 'late' | 'other'
+  status: 'present' | 'absent' | 'late' | 'other' | 'unchecked'
   note?: string
   isModified?: boolean
+  staffName?: string
+}
+
+// Current staff info stored in sessionStorage
+export interface CurrentStaff {
+  name: string
+  grade: number
+  date: string
 }
 
 // Zone config

@@ -1,9 +1,11 @@
 import { useParams, useNavigate } from 'react-router-dom'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import Header from '../components/layout/Header'
 import SeatMap from '../components/seatmap/SeatMap'
 import AttendanceSummary from '../components/attendance/AttendanceSummary'
-import type { AttendanceRecord } from '../types'
+import type { AttendanceRecord, CurrentStaff } from '../types'
+import { SEAT_LAYOUTS } from '../config/seatLayouts'
+import { getStudentBySeatId } from '../config/mockStudents'
 
 export default function AttendancePage() {
   const { zoneId } = useParams<{ zoneId: string }>()
@@ -11,6 +13,19 @@ export default function AttendancePage() {
   const [attendanceRecords, setAttendanceRecords] = useState<Map<string, AttendanceRecord>>(new Map())
   const [hasChanges, setHasChanges] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
+  const [currentStaff, setCurrentStaff] = useState<CurrentStaff | null>(null)
+
+  // Get current staff from sessionStorage
+  useEffect(() => {
+    const staffData = sessionStorage.getItem('currentStaff')
+    if (staffData) {
+      const staff = JSON.parse(staffData) as CurrentStaff
+      const today = new Date().toISOString().split('T')[0]
+      if (staff.date === today) {
+        setCurrentStaff(staff)
+      }
+    }
+  }, [])
 
   // Get today's date in Korean format
   const today = new Date().toLocaleDateString('ko-KR', {
@@ -28,9 +43,10 @@ export default function AttendancePage() {
       // Toggle between present and absent
       const newStatus = current?.status === 'present' ? 'absent' : 'present'
       newRecords.set(seatId, {
-        studentId: seatId, // Using seatId as identifier for now
+        studentId: seatId,
         status: newStatus,
         isModified: true,
+        staffName: currentStaff?.name,
       })
 
       return newRecords
@@ -40,16 +56,42 @@ export default function AttendancePage() {
 
   const handleSave = async () => {
     setIsSaving(true)
-    // TODO: Implement save to Supabase
+    // TODO: Implement save to Supabase with staff_name
+    // The records already contain staffName from handleSeatClick
     await new Promise(resolve => setTimeout(resolve, 500))
     setIsSaving(false)
     setHasChanges(false)
-    alert('출결이 저장되었습니다.')
+    alert(`출결이 저장되었습니다.${currentStaff ? `\n기록자: ${currentStaff.name}` : ''}`)
   }
 
   const handleMarkAllPresent = () => {
-    // TODO: Mark all seats as present from SEAT_LAYOUTS
-    alert('전체 출석 처리')
+    const layout = SEAT_LAYOUTS[zoneId || '']
+    if (!layout) return
+
+    const newRecords = new Map<string, AttendanceRecord>()
+
+    layout.forEach((row) => {
+      if (row[0] === 'br') return
+
+      row.forEach((cell) => {
+        if (cell !== 'sp' && cell !== 'empty' && cell !== 'br') {
+          const seatId = cell as string
+          // Only mark assigned seats as present
+          const student = getStudentBySeatId(seatId)
+          if (student) {
+            newRecords.set(seatId, {
+              studentId: seatId,
+              status: 'present',
+              isModified: true,
+              staffName: currentStaff?.name,
+            })
+          }
+        }
+      })
+    })
+
+    setAttendanceRecords(newRecords)
+    setHasChanges(true)
   }
 
   // Calculate summary
@@ -63,7 +105,9 @@ export default function AttendancePage() {
   }
 
   attendanceRecords.forEach((record) => {
-    summary[record.status]++
+    if (record.status !== 'unchecked') {
+      summary[record.status]++
+    }
     summary.total++
   })
 
@@ -75,11 +119,22 @@ export default function AttendancePage() {
         onBack={() => navigate('/')}
       />
 
-      {/* Date display */}
+      {/* Date and staff display */}
       <div className="bg-white border-b px-4 py-3">
-        <div className="text-center">
-          <span className="text-lg font-semibold text-gray-700">{today}</span>
-          <span className="ml-2 text-sm text-gray-500">출결 체크</span>
+        <div className="flex justify-between items-center">
+          <div>
+            <span className="text-lg font-semibold text-gray-700">{today}</span>
+            <span className="ml-2 text-sm text-gray-500">출결 체크</span>
+          </div>
+          {currentStaff ? (
+            <span className="text-sm bg-primary-100 text-primary-700 px-3 py-1 rounded-full">
+              기록자: {currentStaff.name}
+            </span>
+          ) : (
+            <span className="text-sm bg-yellow-100 text-yellow-700 px-3 py-1 rounded-full">
+              담당자 미선택
+            </span>
+          )}
         </div>
       </div>
 
