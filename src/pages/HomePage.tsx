@@ -37,13 +37,23 @@ const GRADES = [
 export default function HomePage() {
   const navigate = useNavigate()
 
-  const handleZoneClick = (grade: number, zoneId: string) => {
-    navigate(`/attendance/${grade}/${zoneId}`)
+  const handleZoneClick = (zoneId: string) => {
+    navigate(`/attendance/${zoneId}`)
   }
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <Header title="면학실 선택" />
+      <Header
+        title="면학실 선택"
+        rightAction={
+          <button
+            onClick={() => navigate('/admin')}
+            className="px-3 py-1 text-sm bg-slate-700 text-white rounded-lg hover:bg-slate-800"
+          >
+            관리자
+          </button>
+        }
+      />
 
       <main className="container mx-auto px-4 py-6 space-y-8">
         {GRADES.map((gradeInfo) => (
@@ -57,7 +67,7 @@ export default function HomePage() {
               {gradeInfo.zones.map((zone) => (
                 <button
                   key={zone.id}
-                  onClick={() => handleZoneClick(gradeInfo.grade, zone.id)}
+                  onClick={() => handleZoneClick(zone.id)}
                   className={`${zone.color} p-6 rounded-xl border-2 border-gray-300
                              hover:scale-105 hover:shadow-lg transition-all duration-200
                              flex flex-col items-center justify-center min-h-[120px]`}
@@ -76,7 +86,7 @@ export default function HomePage() {
                   {gradeInfo.subZones.map((zone) => (
                     <button
                       key={zone.id}
-                      onClick={() => handleZoneClick(gradeInfo.grade, zone.id)}
+                      onClick={() => handleZoneClick(zone.id)}
                       className="px-6 py-3 bg-gray-100 rounded-lg border border-gray-300
                                  hover:bg-gray-200 transition-colors"
                     >

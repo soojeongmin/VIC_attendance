@@ -2,6 +2,7 @@ import { Routes, Route, Navigate } from 'react-router-dom'
 import HomePage from './pages/HomePage'
 import AttendancePage from './pages/AttendancePage'
 import LoginPage from './pages/LoginPage'
+import AdminDashboard from './pages/AdminDashboard'
 
 function App() {
   return (
@@ -9,7 +10,8 @@ function App() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/" element={<HomePage />} />
-        <Route path="/attendance/:grade/:zoneId" element={<AttendancePage />} />
+        <Route path="/attendance/:zoneId" element={<AttendancePage />} />
+        <Route path="/admin" element={<AdminDashboard />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </div>

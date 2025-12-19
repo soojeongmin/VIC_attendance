@@ -1,12 +1,14 @@
 import { useNavigate } from 'react-router-dom'
+import type { ReactNode } from 'react'
 
 interface HeaderProps {
   title: string
   showBack?: boolean
   onBack?: () => void
+  rightAction?: ReactNode
 }
 
-export default function Header({ title, showBack, onBack }: HeaderProps) {
+export default function Header({ title, showBack, onBack, rightAction }: HeaderProps) {
   const navigate = useNavigate()
 
   const handleBack = () => {
@@ -45,13 +47,17 @@ export default function Header({ title, showBack, onBack }: HeaderProps) {
 
         <h1 className="text-xl font-bold flex-1">{title}</h1>
 
-        <div className="text-sm text-gray-300">
-          {new Date().toLocaleDateString('ko-KR', {
-            month: 'long',
-            day: 'numeric',
-            weekday: 'short',
-          })}
-        </div>
+        {rightAction ? (
+          <div>{rightAction}</div>
+        ) : (
+          <div className="text-sm text-gray-300">
+            {new Date().toLocaleDateString('ko-KR', {
+              month: 'long',
+              day: 'numeric',
+              weekday: 'short',
+            })}
+          </div>
+        )}
       </div>
     </header>
   )
