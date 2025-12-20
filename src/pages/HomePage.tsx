@@ -19,10 +19,7 @@ const GRADES = [
       { id: '4C', name: '4C', color: 'bg-sky-200', students: 53 },
       { id: '4D', name: '4D', color: 'bg-orange-200', students: 120 },
     ],
-    subZones: [
-      { id: 'C407', name: 'C407', students: 30 },
-      { id: 'C409', name: 'C409', students: 36 },
-    ]
+    
   },
   {
     grade: 2,
@@ -33,11 +30,7 @@ const GRADES = [
       { id: '3C', name: '3C', color: 'bg-sky-200', students: 22 },
       { id: '3D', name: '3D', color: 'bg-orange-200', students: 122 },
     ],
-    subZones: [
-      { id: 'C306', name: 'C306', students: 36 },
-      { id: 'C307', name: 'C307', students: 36 },
-      { id: 'C309', name: 'C309', students: 36 },
-    ]
+    
   },
 ]
 
