@@ -9,9 +9,9 @@ export default defineConfig({
       registerType: 'autoUpdate',
       includeAssets: ['favicon.ico', 'robots.txt', 'icons/*.png'],
       manifest: {
-        name: 'VIC Attendance',
-        short_name: 'VIC',
-        description: 'Study Hall Attendance Management System',
+        name: 'VIC 면학 출결관리',
+        short_name: 'VIC 출결',
+        description: '충남삼성고 VIC 면학실 출결관리 시스템',
         theme_color: '#2c3e50',
         background_color: '#ffffff',
         display: 'standalone',
