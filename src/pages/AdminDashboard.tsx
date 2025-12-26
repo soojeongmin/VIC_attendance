@@ -41,33 +41,85 @@ const ZONES = [
   { id: '3D', name: '3층 D구역', grade: 2 },
 ]
 
-// 날짜별 담당자 스케줄
-const DATE_STAFF_SCHEDULE: Record<string, { grade1: [string, string], grade2: [string, string] }> = {
-  '2025-12-24': { grade1: ['홍선영', '장보경'], grade2: ['김솔', '홍승민'] },
-  '2025-12-25': { grade1: ['조현정', '강현수'], grade2: ['민수정', '박한비'] },
-  '2025-12-26': { grade1: ['서률지', '정수빈'], grade2: ['김종규', '이건우'] },
-  '2025-12-27': { grade1: ['조민경', '노예원'], grade2: ['이예진', '홍선영'] },
+// 담당자 목록
+const STAFF_LIST = [
+  '김종규', '이건우', '조민경', '노예원', '이예진',
+  '홍선영', '장보경', '김솔', '홍승민', '조현정',
+  '강현수', '민수정', '박한비', '서률지', '정수빈'
+]
+
+// 운영 날짜 범위 (2025.12.15~12.26, 2026.01.07~02.03)
+function getOperatingDates(): string[] {
+  const dates: string[] = []
+
+  // 2025년 12월 15일 ~ 26일
+  for (let d = 15; d <= 26; d++) {
+    dates.push(`2025-12-${String(d).padStart(2, '0')}`)
+  }
+
+  // 2026년 1월 7일 ~ 31일
+  for (let d = 7; d <= 31; d++) {
+    dates.push(`2026-01-${String(d).padStart(2, '0')}`)
+  }
+
+  // 2026년 2월 1일 ~ 3일
+  for (let d = 1; d <= 3; d++) {
+    dates.push(`2026-02-${String(d).padStart(2, '0')}`)
+  }
+
+  return dates
 }
 
-// 날짜별 구역 완료율 (날짜마다 다르게 설정)
-const DATE_COMPLETION_RATES: Record<string, Record<string, number>> = {
-  '2025-12-24': {
-    '4A': 1.0, '4B': 1.0, '4C': 1.0, '4D': 1.0,
-    '3A': 1.0, '3B': 1.0, '3C': 1.0, '3D': 1.0,
-  },
-  '2025-12-25': {
-    '4A': 1.0, '4B': 0.9, '4C': 1.0, '4D': 0.95,
-    '3A': 1.0, '3B': 1.0, '3C': 0.85, '3D': 1.0,
-  },
-  '2025-12-26': {
-    '4A': 1.0, '4B': 0.85, '4C': 0.0, '4D': 0.95,
-    '3A': 1.0, '3B': 0.7, '3C': 0.5, '3D': 0.0,
-  },
-  '2025-12-27': {
-    '4A': 0.8, '4B': 0.6, '4C': 0.4, '4D': 0.2,
-    '3A': 0.5, '3B': 0.3, '3C': 0.1, '3D': 0.0,
-  },
+const OPERATING_DATES = getOperatingDates()
+
+// 날짜별 담당자 스케줄 동적 생성
+function generateStaffSchedule(): Record<string, { grade1: [string, string], grade2: [string, string] }> {
+  const schedule: Record<string, { grade1: [string, string], grade2: [string, string] }> = {}
+
+  OPERATING_DATES.forEach((dateStr, index) => {
+    const staffIndex = index % STAFF_LIST.length
+    schedule[dateStr] = {
+      grade1: [STAFF_LIST[staffIndex], STAFF_LIST[(staffIndex + 1) % STAFF_LIST.length]],
+      grade2: [STAFF_LIST[(staffIndex + 2) % STAFF_LIST.length], STAFF_LIST[(staffIndex + 3) % STAFF_LIST.length]],
+    }
+  })
+
+  return schedule
 }
+
+const DATE_STAFF_SCHEDULE = generateStaffSchedule()
+
+// 날짜별 구역 완료율 동적 생성 (과거 날짜는 100% 완료)
+function generateCompletionRates(): Record<string, Record<string, number>> {
+  const rates: Record<string, Record<string, number>> = {}
+  const today = new Date().toISOString().split('T')[0]
+
+  OPERATING_DATES.forEach((dateStr) => {
+    if (dateStr < today) {
+      // 과거 날짜: 100% 완료
+      rates[dateStr] = {
+        '4A': 1.0, '4B': 1.0, '4C': 1.0, '4D': 1.0,
+        '3A': 1.0, '3B': 1.0, '3C': 1.0, '3D': 1.0,
+      }
+    } else if (dateStr === today) {
+      // 오늘: 부분 완료 (실제 데이터는 localStorage에서)
+      rates[dateStr] = {
+        '4A': 0.0, '4B': 0.0, '4C': 0.0, '4D': 0.0,
+        '3A': 0.0, '3B': 0.0, '3C': 0.0, '3D': 0.0,
+      }
+    } else {
+      // 미래 날짜: 0%
+      rates[dateStr] = {
+        '4A': 0.0, '4B': 0.0, '4C': 0.0, '4D': 0.0,
+        '3A': 0.0, '3B': 0.0, '3C': 0.0, '3D': 0.0,
+      }
+    }
+  })
+
+  return rates
+}
+
+const DATE_COMPLETION_RATES = generateCompletionRates()
 
 // 날짜별 구역 기록자 매핑 생성
 function getZoneRecordersForDate(dateStr: string): Record<string, string> {
