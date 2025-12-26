@@ -87,7 +87,10 @@ function getZoneStatus(zoneId: string, todayKey: string): ZoneStatus {
 
   let present = 0
   let absent = 0
-  records.forEach((record) => {
+  // 실제 배정된 학생에 대해서만 출결 카운트
+  records.forEach((record, seatId) => {
+    const student = getStudentBySeatId(seatId)
+    if (!student) return // 학생이 없는 좌석은 무시
     if (record.status === 'present') present++
     else if (record.status === 'absent') absent++
   })
