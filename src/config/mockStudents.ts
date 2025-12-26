@@ -2,6 +2,8 @@
 // 1학년: 121명 (4층 4A, 4B, 4C, 4D)
 // 2학년: 146명 (3층 3A, 3B, 3C, 3D)
 
+import { SEAT_LAYOUTS } from './seatLayouts'
+
 export interface Student {
   studentId: string  // 5자리 학번
   name: string
@@ -13,7 +15,7 @@ export interface Student {
   }
 }
 
-// 1학년 학생 목록 (127명)
+// 1학년 학생 목록 (121명)
 const GRADE1_STUDENTS: { studentId: string; name: string }[] = [
   { studentId: '10101', name: '강민재' },
   { studentId: '10102', name: '권민준' },
@@ -138,7 +140,7 @@ const GRADE1_STUDENTS: { studentId: string; name: string }[] = [
   { studentId: '11232', name: '허지윤' },
 ]
 
-// 2학년 학생 목록 (140명)
+// 2학년 학생 목록 (146명)
 const GRADE2_STUDENTS: { studentId: string; name: string }[] = [
   { studentId: '20104', name: '김민서' },
   { studentId: '20105', name: '김성윤' },
@@ -288,60 +290,84 @@ const GRADE2_STUDENTS: { studentId: string; name: string }[] = [
   { studentId: '21224', name: '홍예빈' },
 ]
 
-// 구역별 좌석 배치 (실제 학생 수에 맞춤)
-// 1학년: 4A(30), 4B(30), 4C(31), 4D(30) = 121명
-// 2학년: 3A(37), 3B(37), 3C(24), 3D(48) = 146명
-const ZONE_DISTRIBUTION = {
-  '4A': { start: 0, count: 30, prefix: '4A' },
-  '4B': { start: 30, count: 30, prefix: '4B' },
-  '4C': { start: 60, count: 31, prefix: '4C' },
-  '4D': { start: 91, count: 30, prefix: '4D' },
-  '3A': { start: 0, count: 37, prefix: '3A' },
-  '3B': { start: 37, count: 37, prefix: '3B' },
-  '3C': { start: 74, count: 24, prefix: '3C' },
-  '3D': { start: 98, count: 48, prefix: '3D' },
-}
+// 구역에서 모든 좌석 ID 추출 (숫자 순으로 정렬)
+function getAllSeatIds(zoneId: string): string[] {
+  const layout = SEAT_LAYOUTS[zoneId]
+  if (!layout) return []
 
-// 학생을 좌석에 배치
-function assignStudentsToSeats(): Map<string, Student> {
-  const studentMap = new Map<string, Student>()
-
-  // 1학년 배치
-  const grade1Zones = ['4A', '4B', '4C', '4D'] as const
-  grade1Zones.forEach((zoneId) => {
-    const dist = ZONE_DISTRIBUTION[zoneId]
-    for (let i = 0; i < dist.count; i++) {
-      const studentIndex = dist.start + i
-      if (studentIndex < GRADE1_STUDENTS.length) {
-        const studentData = GRADE1_STUDENTS[studentIndex]
-        const seatNum = String(i + 1).padStart(3, '0')
-        const seatId = `${dist.prefix}${seatNum}`
-        studentMap.set(seatId, {
-          studentId: studentData.studentId,
-          name: studentData.name,
-          seatId,
-        })
+  const seatIds: string[] = []
+  layout.forEach(row => {
+    if (row[0] === 'br') return
+    row.forEach(cell => {
+      if (cell !== 'sp' && cell !== 'empty' && cell !== 'br') {
+        seatIds.push(cell as string)
       }
-    }
+    })
   })
 
-  // 2학년 배치
-  const grade2Zones = ['3A', '3B', '3C', '3D'] as const
-  grade2Zones.forEach((zoneId) => {
-    const dist = ZONE_DISTRIBUTION[zoneId]
-    for (let i = 0; i < dist.count; i++) {
-      const studentIndex = dist.start + i
-      if (studentIndex < GRADE2_STUDENTS.length) {
-        const studentData = GRADE2_STUDENTS[studentIndex]
-        const seatNum = String(i + 1).padStart(3, '0')
-        const seatId = `${dist.prefix}${seatNum}`
+  // 좌석 번호 순으로 정렬 (4A001, 4A002, ...)
+  return seatIds.sort((a, b) => {
+    const numA = parseInt(a.replace(/\D/g, ''))
+    const numB = parseInt(b.replace(/\D/g, ''))
+    return numA - numB
+  })
+}
+
+// 학생을 좌석에 배치 (미배치 좌석은 null)
+function assignStudentsToSeats(): Map<string, Student | null> {
+  const studentMap = new Map<string, Student | null>()
+
+  // 1학년 구역 (4층)
+  const grade1Zones = ['4A', '4B', '4C', '4D']
+  let grade1StudentIndex = 0
+
+  grade1Zones.forEach((zoneId) => {
+    const seatIds = getAllSeatIds(zoneId)
+    seatIds.forEach((seatId) => {
+      if (grade1StudentIndex < GRADE1_STUDENTS.length) {
+        const studentData = GRADE1_STUDENTS[grade1StudentIndex]
         studentMap.set(seatId, {
           studentId: studentData.studentId,
           name: studentData.name,
           seatId,
         })
+        grade1StudentIndex++
+      } else {
+        // 미배치 좌석
+        studentMap.set(seatId, null)
       }
-    }
+    })
+  })
+
+  // 2학년 구역 (3층)
+  const grade2Zones = ['3A', '3B', '3C', '3D']
+  let grade2StudentIndex = 0
+
+  grade2Zones.forEach((zoneId) => {
+    const seatIds = getAllSeatIds(zoneId)
+    seatIds.forEach((seatId) => {
+      if (grade2StudentIndex < GRADE2_STUDENTS.length) {
+        const studentData = GRADE2_STUDENTS[grade2StudentIndex]
+        studentMap.set(seatId, {
+          studentId: studentData.studentId,
+          name: studentData.name,
+          seatId,
+        })
+        grade2StudentIndex++
+      } else {
+        // 미배치 좌석
+        studentMap.set(seatId, null)
+      }
+    })
+  })
+
+  // 기타 구역 (C407, C409, C306, C307, C309)은 모두 미배치
+  const otherZones = ['C407', 'C409', 'C306', 'C307', 'C309']
+  otherZones.forEach((zoneId) => {
+    const seatIds = getAllSeatIds(zoneId)
+    seatIds.forEach((seatId) => {
+      studentMap.set(seatId, null)
+    })
   })
 
   return studentMap
@@ -350,7 +376,7 @@ function assignStudentsToSeats(): Map<string, Student> {
 // 학생 데이터 (고정)
 export const STUDENTS = assignStudentsToSeats()
 
-// 좌석 ID로 학생 찾기
+// 좌석 ID로 학생 찾기 (null이면 미배치)
 export function getStudentBySeatId(seatId: string): Student | null {
   return STUDENTS.get(seatId) ?? null
 }
@@ -371,14 +397,19 @@ const ZONE_NAMES: Record<string, string> = {
   '3B': '3층 B구역',
   '3C': '3층 C구역',
   '3D': '3층 D구역',
+  'C407': 'C407',
+  'C409': 'C409',
+  'C306': 'C306',
+  'C307': 'C307',
+  'C309': 'C309',
 }
 
 export function searchStudentByName(name: string): StudentSearchResult[] {
   const results: StudentSearchResult[] = []
 
-  STUDENTS.forEach((student) => {
-    if (student.name.includes(name)) {
-      const zoneId = student.seatId.match(/^[34][A-D]/)?.[0] || ''
+  STUDENTS.forEach((student, seatId) => {
+    if (student && student.name.includes(name)) {
+      const zoneId = seatId.match(/^[34][A-D]|C\d{3}/)?.[0] || ''
       results.push({
         student,
         zoneId,
@@ -393,28 +424,42 @@ export function searchStudentByName(name: string): StudentSearchResult[] {
 // 학번으로 학생 찾기
 export function getStudentByStudentId(studentId: string): Student | null {
   for (const student of STUDENTS.values()) {
-    if (student.studentId === studentId) {
+    if (student && student.studentId === studentId) {
       return student
     }
   }
   return null
 }
 
-// 구역별 학생 수 반환
+// 구역별 배정된 학생 수 반환
 export function getStudentCountByZone(zoneId: string): number {
-  const dist = ZONE_DISTRIBUTION[zoneId as keyof typeof ZONE_DISTRIBUTION]
-  return dist?.count || 0
+  const seatIds = getAllSeatIds(zoneId)
+  let count = 0
+  seatIds.forEach((seatId) => {
+    if (STUDENTS.get(seatId)) count++
+  })
+  return count
 }
 
-// 전체 학생 목록
+// 전체 학생 목록 (배정된 학생만)
 export function getAllStudents(): Student[] {
-  return Array.from(STUDENTS.values())
+  const students: Student[] = []
+  STUDENTS.forEach((student) => {
+    if (student) students.push(student)
+  })
+  return students
 }
 
 // 학년별 학생 목록
 export function getStudentsByGrade(grade: 1 | 2): Student[] {
   const prefix = grade === 1 ? '4' : '3'
-  return Array.from(STUDENTS.values()).filter(s => s.seatId.startsWith(prefix))
+  const students: Student[] = []
+  STUDENTS.forEach((student, seatId) => {
+    if (student && seatId.startsWith(prefix)) {
+      students.push(student)
+    }
+  })
+  return students
 }
 
 // MockStudent 타입 호환성을 위한 alias
