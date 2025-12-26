@@ -77,18 +77,38 @@ export default function LandingPage() {
             <div className="bg-white p-4 rounded-lg mb-4">
               <h3 className="text-primary-500 font-semibold mb-2">2. 출결 체크</h3>
               <ul className="text-gray-700 space-y-1 text-sm">
-                <li>• <span className="font-semibold">터치</span>: 출석 ↔ 결석 토글</li>
+                <li>• <span className="font-semibold">좌석 터치</span>: 출석 ↔ 결석 토글</li>
                 <li>• <span className="bg-green-100 text-green-700 px-1 rounded">초록색</span> = 출석</li>
                 <li>• <span className="bg-red-100 text-red-700 px-1 rounded">빨간색</span> = 결석</li>
                 <li>• <span className="bg-yellow-50 text-gray-600 px-1 rounded">노란색</span> = 미체크</li>
+                <li>• <span className="font-semibold">좌석 꾹 누르기</span>: 학생 정보 확인 (학번, 이름, 좌석 등)</li>
               </ul>
             </div>
 
             <div className="bg-white p-4 rounded-lg mb-4">
-              <h3 className="text-primary-500 font-semibold mb-2">3. 저장</h3>
+              <h3 className="text-primary-500 font-semibold mb-2">3. 빠른 입력 기능</h3>
               <ul className="text-gray-700 space-y-1 text-sm">
-                <li>• 출결 체크 완료 후 <span className="font-semibold">저장</span> 버튼을 누릅니다</li>
-                <li>• <span className="font-semibold">전체 출석</span>: 모든 학생을 출석 처리</li>
+                <li>• <span className="font-semibold text-green-600">전체 출석</span>: 모든 학생을 한번에 출석 처리</li>
+                <li>• <span className="font-semibold text-red-600">전체 결석</span>: 모든 학생을 한번에 결석 처리</li>
+                <li>• 일부만 결석인 경우: 전체 출석 후 결석자만 터치</li>
+              </ul>
+            </div>
+
+            <div className="bg-white p-4 rounded-lg mb-4">
+              <h3 className="text-primary-500 font-semibold mb-2">4. 저장</h3>
+              <ul className="text-gray-700 space-y-1 text-sm">
+                <li>• <span className="font-semibold text-primary-600">저장</span>: 출결 데이터 최종 저장 (관리자에게 전송)</li>
+                <li>• <span className="font-semibold text-gray-600">임시저장</span>: 중간 저장 (나중에 이어서 작업 가능)</li>
+                <li>• 저장 후 덮어쓰기 가능 (수정이 필요한 경우)</li>
+              </ul>
+            </div>
+
+            <div className="bg-white p-4 rounded-lg mb-4">
+              <h3 className="text-primary-500 font-semibold mb-2">5. 기타 기능</h3>
+              <ul className="text-gray-700 space-y-1 text-sm">
+                <li>• <span className="font-semibold">학생 검색</span>: 홈 화면 우측 상단에서 이름으로 검색</li>
+                <li>• <span className="font-semibold">기타사항 입력</span>: 출결 페이지 하단에 메모 작성</li>
+                <li>• <span className="font-semibold">버그 보고</span>: 문제 발생 시 홈 화면에서 보고</li>
               </ul>
             </div>
           </div>
@@ -258,18 +278,64 @@ export default function LandingPage() {
               </div>
             )}
 
-            {/* No staff registered message */}
-            {!todayStaff.grade1 && !todayStaff.grade2 && (
-              <div className="text-center py-10">
+            {/* No staff registered - show full staff list */}
+            {!todayStaff.grade1 && !todayStaff.grade2 && !selectedGrade && (
+              <div className="text-center">
                 <p className="text-gray-500 mb-4">
                   오늘 날짜({today})에 등록된 담당자가 없습니다.
                 </p>
+                <p className="text-gray-700 mb-4 font-semibold">
+                  담당 학년을 선택하세요
+                </p>
+                <div className="flex gap-4">
+                  <button
+                    onClick={() => setSelectedGrade(1)}
+                    className="flex-1 py-6 rounded-xl font-bold text-xl bg-blue-500 text-white hover:bg-blue-600"
+                  >
+                    1학년
+                  </button>
+                  <button
+                    onClick={() => setSelectedGrade(2)}
+                    className="flex-1 py-6 rounded-xl font-bold text-xl bg-green-500 text-white hover:bg-green-600"
+                  >
+                    2학년
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* No registered staff but grade selected - show all staff */}
+            {!todayStaff.grade1 && !todayStaff.grade2 && selectedGrade && (
+              <div>
                 <button
-                  onClick={() => navigate('/')}
-                  className="px-6 py-3 bg-gray-500 text-white rounded-lg hover:bg-gray-600"
+                  onClick={() => {
+                    setSelectedGrade(null)
+                    setShowOtherStaff(false)
+                  }}
+                  className="mb-4 text-gray-500 hover:text-gray-700"
                 >
-                  담당자 선택 없이 진행
+                  ← 학년 다시 선택
                 </button>
+
+                <p className="text-center text-gray-700 mb-4 font-semibold">
+                  {selectedGrade}학년 담당자를 선택하세요
+                </p>
+
+                <div className="flex flex-wrap gap-2 p-4 bg-gray-50 rounded-xl">
+                  {ALL_STAFF.map((staffName) => (
+                    <button
+                      key={staffName}
+                      onClick={() => handleStaffSelect(staffName, selectedGrade)}
+                      className={`px-4 py-3 rounded-lg font-medium text-base transition-all
+                        ${selectedGrade === 1
+                          ? 'bg-blue-100 text-blue-700 hover:bg-blue-200 border border-blue-200'
+                          : 'bg-green-100 text-green-700 hover:bg-green-200 border border-green-200'
+                        }`}
+                    >
+                      {staffName}
+                    </button>
+                  ))}
+                </div>
               </div>
             )}
           </>

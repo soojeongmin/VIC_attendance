@@ -4,6 +4,7 @@ import Header from '../components/layout/Header'
 import BugReportModal from '../components/BugReportModal'
 import { searchStudentByName, getStudentBySeatId, type StudentSearchResult } from '../config/mockStudents'
 import { SEAT_LAYOUTS } from '../config/seatLayouts'
+import { isTemporaryPeriod } from '../config/staffSchedule'
 import type { AttendanceRecord } from '../types'
 
 interface CurrentStaff {
@@ -234,6 +235,22 @@ export default function HomePage() {
           </button>
         </div>
       </div>
+
+      {/* 임시 데이터 기간 안내 */}
+      {isTemporaryPeriod(todayKey) && (
+        <div className="bg-orange-50 border-b border-orange-200 px-4 py-3">
+          <div className="container mx-auto">
+            <div className="flex items-start gap-2">
+              <span className="text-orange-500 text-lg">⚠️</span>
+              <div>
+                <span className="text-sm text-orange-700 font-semibold">
+                  2025 VIC가 아직 시작되지 않았습니다. 해당 데이터는 임시 데이터입니다.
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* 관리자 특이사항 */}
       {adminNotice && (
