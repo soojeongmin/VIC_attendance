@@ -2,6 +2,7 @@ import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useState, useEffect, useMemo } from 'react'
 import Header from '../components/layout/Header'
 import SeatMap from '../components/seatmap/SeatMap'
+import PinchZoomContainer from '../components/PinchZoomContainer'
 import type { AttendanceRecord, CurrentStaff } from '../types'
 import { SEAT_LAYOUTS } from '../config/seatLayouts'
 import { getStudentBySeatId } from '../config/mockStudents'
@@ -129,7 +130,7 @@ export default function AttendancePage() {
     setStudentNotes(getAllStudentNotes(dateKey))
   }, [dateKey])
 
-  // 저장된 데이터 또는 임시저장 데이터 복원
+  // 저장된 데이터 또는 임시저장 데이터 복원 + 사전 결석 학생 자동 처리
   useEffect(() => {
     // 관리자에서 특정 날짜 데이터를 보러 온 경우 - navigation state에서 직접 가져옴
     if (fromAdmin && viewDate && viewData) {
@@ -169,11 +170,31 @@ export default function AttendancePage() {
         setAttendanceRecords(restoredRecords)
         setHasTempSave(true)
         setHasChanges(true)
+        return
       } catch (e) {
         console.error('임시저장 데이터 복원 실패:', e)
       }
     }
-  }, [zoneId, todayKey, fromAdmin, viewDate, viewData])
+
+    // 저장된 데이터도 임시저장 데이터도 없으면 사전 결석 학생 자동 결석 처리
+    const preAbsenceRecords = new Map<string, AttendanceRecord>()
+    assignedSeats.forEach((seatId) => {
+      const student = getStudentBySeatId(seatId)
+      if (student?.preAbsence) {
+        preAbsenceRecords.set(seatId, {
+          studentId: seatId,
+          status: 'absent',
+          isModified: true,
+          staffName: currentStaff?.name,
+        })
+      }
+    })
+
+    if (preAbsenceRecords.size > 0) {
+      setAttendanceRecords(preAbsenceRecords)
+      setHasChanges(true)
+    }
+  }, [zoneId, todayKey, fromAdmin, viewDate, viewData, assignedSeats, currentStaff])
 
   // Get display date in Korean format (viewDate when from admin, otherwise today)
   const displayDate = useMemo(() => {
@@ -475,14 +496,16 @@ export default function AttendancePage() {
       )}
 
       {/* Seat map */}
-      <div className="flex-1 overflow-auto p-4">
-        <SeatMap
-          zoneId={zoneId || ''}
-          attendanceRecords={attendanceRecords}
-          studentNotes={studentNotes}
-          onSeatClick={handleSeatClick}
-          onSeatLongPress={handleSeatLongPress}
-        />
+      <div className="flex-1 overflow-hidden p-4">
+        <PinchZoomContainer>
+          <SeatMap
+            zoneId={zoneId || ''}
+            attendanceRecords={attendanceRecords}
+            studentNotes={studentNotes}
+            onSeatClick={handleSeatClick}
+            onSeatLongPress={handleSeatLongPress}
+          />
+        </PinchZoomContainer>
       </div>
 
       {/* 알림 모달 */}
