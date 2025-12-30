@@ -102,12 +102,6 @@ async function sendTestSMS() {
     const context = await browser.newContext();
     const page = await context.newPage();
 
-    // Handle dialogs
-    page.on('dialog', async dialog => {
-      console.log('Dialog:', dialog.message());
-      await dialog.accept();
-    });
-
     // Login
     await loginToRiroschool(page);
 
@@ -540,11 +534,39 @@ async function sendTestSMS() {
     }
     await page.waitForTimeout(500);
 
-    // Step 8: Click send button
+    // Step 8: Click send button and handle confirmation dialog
     console.log('Clicking send button...');
+
+    // Set up a promise to track dialog handling
+    let dialogHandled = false;
+    let dialogMessage = '';
+
+    const dialogPromise = new Promise((resolve) => {
+      const handler = async (dialog) => {
+        dialogMessage = dialog.message();
+        console.log('Dialog appeared:', dialogMessage);
+        await dialog.accept();
+        dialogHandled = true;
+        console.log('Dialog accepted');
+        resolve(true);
+      };
+      page.once('dialog', handler);
+
+      // Timeout fallback - if no dialog appears within 10 seconds
+      setTimeout(() => {
+        if (!dialogHandled) {
+          console.log('No dialog appeared within timeout');
+          resolve(false);
+        }
+      }, 10000);
+    });
+
+    // Click the send button
     try {
       await page.getByRole('button', { name: '메시지 발송' }).click();
+      console.log('Send button clicked');
     } catch (e) {
+      console.log('Role-based button click failed, trying fallback...');
       await page.evaluate(() => {
         const buttons = document.querySelectorAll('button');
         for (const btn of buttons) {
@@ -555,10 +577,32 @@ async function sendTestSMS() {
         }
       });
     }
+
+    // Wait for dialog to be handled
+    console.log('Waiting for confirmation dialog...');
+    const wasDialogHandled = await dialogPromise;
+
+    if (wasDialogHandled) {
+      console.log('Confirmation dialog was handled successfully');
+    } else {
+      console.log('Warning: No confirmation dialog detected');
+    }
+
+    // Wait for the success message to appear after dialog
     await page.waitForTimeout(3000);
 
+    // Check for success indicator
+    const result = await page.evaluate(() => {
+      const bodyText = document.body.innerText;
+      if (bodyText.includes('발송 완료') || bodyText.includes('성공')) {
+        return { success: true, message: bodyText.match(/발송 완료[^\n]*/)?.[0] || 'SMS sent' };
+      }
+      return { success: false, message: 'No success indicator found' };
+    });
+
+    console.log('Send result:', JSON.stringify(result));
     console.log('Test SMS sent successfully');
-    return { status: 'success', message: 'Test SMS sent to 민수정 선생님' };
+    return { status: 'success', message: 'Test SMS sent to 민수정 선생님', dialogHandled: wasDialogHandled };
 
   } catch (err) {
     console.error('Error:', err);
@@ -580,12 +624,6 @@ async function sendAbsentSMS(absentStudents) {
   try {
     const context = await browser.newContext();
     const page = await context.newPage();
-
-    // Handle dialogs
-    page.on('dialog', async dialog => {
-      console.log('Dialog:', dialog.message());
-      await dialog.accept();
-    });
 
     // Login
     await loginToRiroschool(page);
@@ -738,7 +776,21 @@ async function sendAbsentSMS(absentStudents) {
         }, CNSA_PW);
         await page.waitForTimeout(500);
 
-        // Click send button
+        // Click send button and handle confirmation dialog
+        let dialogHandled = false;
+        const dialogPromise = new Promise((resolve) => {
+          const handler = async (dialog) => {
+            console.log(`Dialog for ${student.name}:`, dialog.message());
+            await dialog.accept();
+            dialogHandled = true;
+            resolve(true);
+          };
+          page.once('dialog', handler);
+          setTimeout(() => {
+            if (!dialogHandled) resolve(false);
+          }, 10000);
+        });
+
         await page.evaluate(() => {
           const buttons = document.querySelectorAll('button, input[type="button"], input[type="submit"]');
           for (const btn of buttons) {
@@ -748,10 +800,14 @@ async function sendAbsentSMS(absentStudents) {
             }
           }
         });
+
+        // Wait for dialog to be handled
+        const wasDialogHandled = await dialogPromise;
+        console.log(`Dialog handled for ${student.name}:`, wasDialogHandled);
         await page.waitForTimeout(3000);
 
         console.log(`SMS sent to ${student.name}`);
-        results.push({ student: student.name, status: 'success', message: 'SMS sent to 학생 + 어머니' });
+        results.push({ student: student.name, status: 'success', message: 'SMS sent to 학생 + 어머니', dialogHandled: wasDialogHandled });
 
       } catch (err) {
         console.error(`Error sending SMS to ${student.name}:`, err.message);
