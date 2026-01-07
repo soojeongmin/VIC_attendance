@@ -6,6 +6,7 @@ import { searchStudentByName, getStudentBySeatId, type StudentSearchResult } fro
 import { SEAT_LAYOUTS } from '../config/seatLayouts'
 import { isTemporaryPeriod } from '../config/staffSchedule'
 import { getTodayKST } from '../utils/date'
+import { zoneAttendanceService, type ZoneAttendanceData } from '../services/zoneAttendanceService'
 import type { AttendanceRecord } from '../types'
 
 interface CurrentStaff {
@@ -126,25 +127,97 @@ export default function HomePage() {
     setAdminNotice(notice)
   }, [todayKey])
 
-  // 구역별 출결 상태 불러오기
+  // 구역별 출결 상태 불러오기 (Supabase 실시간 + localStorage 폴백)
   useEffect(() => {
-    const loadZoneStatuses = () => {
-      const statuses: Record<string, ZoneStatus> = {}
-      GRADES.forEach((gradeInfo) => {
-        gradeInfo.zones.forEach((zone) => {
-          statuses[zone.id] = getZoneStatus(zone.id, todayKey)
+    // Supabase 데이터로 상태 계산
+    const calculateStatusFromData = (
+      zoneId: string,
+      records: Map<string, AttendanceRecord>
+    ): ZoneStatus => {
+      const layout = SEAT_LAYOUTS[zoneId]
+      if (!layout) return { total: 0, present: 0, absent: 0, unchecked: 0, isComplete: false }
+
+      let totalStudents = 0
+      layout.forEach((row) => {
+        if (row[0] === 'br') return
+        row.forEach((cell) => {
+          if (cell !== 'sp' && cell !== 'empty' && cell !== 'br') {
+            const student = getStudentBySeatId(cell as string)
+            if (student) totalStudents++
+          }
         })
       })
+
+      let present = 0
+      let absent = 0
+      records.forEach((record, seatId) => {
+        const student = getStudentBySeatId(seatId)
+        if (!student) return
+        if (record.status === 'present') present++
+        else if (record.status === 'absent') absent++
+      })
+
+      const unchecked = Math.max(0, totalStudents - present - absent)
+      const isComplete = unchecked === 0 && totalStudents > 0
+
+      return { total: totalStudents, present, absent, unchecked, isComplete }
+    }
+
+    // Supabase 데이터로 상태 업데이트
+    const updateFromSupabase = (allData: ZoneAttendanceData[]) => {
+      const statuses: Record<string, ZoneStatus> = {}
+
+      GRADES.forEach((gradeInfo) => {
+        gradeInfo.zones.forEach((zone) => {
+          const zoneData = allData.find((d) => d.zone_id === zone.id)
+          if (zoneData && zoneData.data) {
+            const records = new Map<string, AttendanceRecord>(zoneData.data)
+            statuses[zone.id] = calculateStatusFromData(zone.id, records)
+          } else {
+            // Supabase에 없으면 localStorage 폴백
+            statuses[zone.id] = getZoneStatus(zone.id, todayKey)
+          }
+        })
+      })
+
       setZoneStatuses(statuses)
     }
 
-    loadZoneStatuses()
+    // 초기 로드
+    const loadInitial = async () => {
+      try {
+        const allData = await zoneAttendanceService.getAllByDate(todayKey)
+        console.log('[HomePage] Supabase data loaded:', allData.length, 'zones')
+        updateFromSupabase(allData)
+      } catch (err) {
+        console.error('[HomePage] Supabase load error:', err)
+        // 에러 시 localStorage 폴백
+        const statuses: Record<string, ZoneStatus> = {}
+        GRADES.forEach((gradeInfo) => {
+          gradeInfo.zones.forEach((zone) => {
+            statuses[zone.id] = getZoneStatus(zone.id, todayKey)
+          })
+        })
+        setZoneStatuses(statuses)
+      }
+    }
+
+    loadInitial()
+
+    // 실시간 구독
+    const unsubscribe = zoneAttendanceService.subscribeToDate(todayKey, (allData) => {
+      console.log('[HomePage] Realtime update:', allData.length, 'zones')
+      updateFromSupabase(allData)
+    })
 
     // 페이지 포커스 시 다시 로드
-    const handleFocus = () => loadZoneStatuses()
+    const handleFocus = () => loadInitial()
     window.addEventListener('focus', handleFocus)
 
-    return () => window.removeEventListener('focus', handleFocus)
+    return () => {
+      window.removeEventListener('focus', handleFocus)
+      unsubscribe()
+    }
   }, [todayKey])
 
   const handleSearch = (query: string) => {
