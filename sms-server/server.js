@@ -1329,51 +1329,33 @@ async function captureSheetScreenshot(sheetName) {
   }
 }
 
-// Send message and image to Discord with embed
-async function sendToDiscord(message, imageBuffer, embedData = null) {
-  const FormData = require('form-data');
+// Send message and image to Discord (simple text, no embed)
+async function sendToDiscord(message, imageBuffer = null) {
   const fetch = require('node-fetch');
 
-  const formData = new FormData();
-
-  // 임베드와 버튼이 있는 payload
-  const payload = {
-    content: message
-  };
-
-  // 임베드 추가 (있는 경우)
-  if (embedData) {
-    payload.embeds = [{
-      title: embedData.title || '📋 면학 출결 현황',
-      description: embedData.description,
-      color: 0x5865F2, // Discord 블루
-      fields: embedData.fields || [],
-      timestamp: new Date().toISOString(),
-      footer: {
-        text: 'VIC 출결관리 시스템'
-      }
-    }];
-
-    // 링크 버튼 추가
-    payload.components = [{
-      type: 1, // Action Row
-      components: [{
-        type: 2, // Button
-        style: 5, // Link
-        label: '📊 스프레드시트 열기',
-        url: SPREADSHEET_URL
-      }]
-    }];
-  }
-
-  formData.append('payload_json', JSON.stringify(payload));
-
-  if (imageBuffer) {
-    formData.append('file', imageBuffer, {
-      filename: 'attendance_report.png',
-      contentType: 'image/png'
+  // 이미지 없이 텍스트만 보내는 경우 (빠름)
+  if (!imageBuffer) {
+    const response = await fetch(DISCORD_WEBHOOK_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: message })
     });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Discord webhook failed: ${response.status} - ${errorText}`);
+    }
+    return { success: true };
   }
+
+  // 이미지 있는 경우
+  const FormData = require('form-data');
+  const formData = new FormData();
+  formData.append('content', message);
+  formData.append('file', imageBuffer, {
+    filename: 'attendance_report.png',
+    contentType: 'image/png'
+  });
 
   const response = await fetch(DISCORD_WEBHOOK_URL, {
     method: 'POST',
@@ -1388,7 +1370,7 @@ async function sendToDiscord(message, imageBuffer, embedData = null) {
   return { success: true };
 }
 
-// Discord report endpoint
+// Discord report endpoint (텍스트만 빠르게 전송)
 app.post('/api/send-discord-report', async (req, res) => {
   const { date, sheetName, grade1Count, grade2Count, message } = req.body;
 
@@ -1400,60 +1382,27 @@ app.post('/api/send-discord-report', async (req, res) => {
   }
 
   try {
-    console.log(`Capturing sheet ${sheetName} and sending to Discord...`);
-
-    // Capture screenshot
-    let screenshot = null;
-    try {
-      screenshot = await captureSheetScreenshot(sheetName);
-    } catch (e) {
-      console.error('Screenshot capture failed:', e.message);
-      // Continue without screenshot
-    }
+    console.log(`Sending Discord report for ${sheetName}...`);
 
     // Format date for message
     const dateObj = new Date(date + 'T00:00:00+09:00');
     const weekdays = ['일', '월', '화', '수', '목', '금', '토'];
     const formattedDate = `${dateObj.getMonth() + 1}월 ${dateObj.getDate()}일(${weekdays[dateObj.getDay()]})`;
 
-    // 임베드 데이터
-    const embedData = {
-      title: `📋 ${formattedDate} 면학 출결 현황`,
-      description: `시트: **${sheetName}**`,
-      fields: [
-        {
-          name: '1학년 결석',
-          value: `${grade1Count || 0}명`,
-          inline: true
-        },
-        {
-          name: '2학년 결석',
-          value: `${grade2Count || 0}명`,
-          inline: true
-        },
-        {
-          name: '총 결석',
-          value: `${(grade1Count || 0) + (grade2Count || 0)}명`,
-          inline: true
-        }
-      ]
-    };
-
-    // 부장님께 보낼 메시지 (클립보드 복사용)
-    const clipboardMessage = message || `안녕하세요, 이현경 부장님.
+    // 부장님께 보낼 메시지
+    const discordMessage = message || `안녕하세요, 이현경 부장님.
 ${formattedDate} 겨울방학 방과후학교 조간면학 출결현황 보내드립니다.
 총 ${(grade1Count || 0) + (grade2Count || 0)}명의 학생 및 학부모님께 알림 발송 완료했습니다.
 [VIC 조간면학일지 스프레드시트] ${SPREADSHEET_URL}?usp=sharing
 감사합니다.`;
 
-    // Send to Discord with embed
-    await sendToDiscord(clipboardMessage, screenshot, embedData);
+    // Send to Discord (텍스트만, 빠름)
+    await sendToDiscord(discordMessage);
 
     res.json({
       success: true,
       message: 'Discord 전송 완료',
-      sheetName,
-      hasScreenshot: !!screenshot
+      sheetName
     });
 
   } catch (err) {
