@@ -14,6 +14,14 @@ export interface AbsentStudent {
   grade: number // 1 or 2
 }
 
+// 특이사항이 있는 학생 (출석 여부 상관없이)
+export interface StudentWithNote {
+  seatId: string
+  name: string
+  note: string
+  grade: number
+}
+
 export interface ExportResult {
   success: boolean
   message: string
@@ -47,7 +55,8 @@ export function isAppsScriptConfigured(): boolean {
 // Google Sheets에 직접 내보내기 (Apps Script 사용)
 export async function exportToGoogleSheets(
   dateStr: string,
-  absentStudents: AbsentStudent[]
+  absentStudents: AbsentStudent[],
+  studentsWithNotes?: StudentWithNote[]  // 특이사항 학생 (선택)
 ): Promise<ExportResult> {
   if (!isAppsScriptConfigured()) {
     return {
@@ -60,6 +69,11 @@ export async function exportToGoogleSheets(
   const displayDate = formatDisplayDate(dateStr)
   const grade1Students = absentStudents.filter((s) => s.grade === 1)
   const grade2Students = absentStudents.filter((s) => s.grade === 2)
+
+  // 특이사항 텍스트 생성 (F5부터 시작)
+  const notesText = studentsWithNotes && studentsWithNotes.length > 0
+    ? studentsWithNotes.map((s) => `${s.seatId} ${s.name}: ${s.note}`).join('\n')
+    : ''
 
   try {
     await fetch(APPS_SCRIPT_URL, {
@@ -74,6 +88,7 @@ export async function exportToGoogleSheets(
         sheetName,
         grade1Students,
         grade2Students,
+        notesText,  // 특이사항 텍스트 추가
       }),
     })
 
@@ -81,7 +96,7 @@ export async function exportToGoogleSheets(
     // 실제 에러는 시트에서 확인
     return {
       success: true,
-      message: `${sheetName} 시트로 내보내기 요청 완료 (${absentStudents.length}명)`,
+      message: `${sheetName} 시트로 내보내기 요청 완료 (결석 ${absentStudents.length}명, 특이사항 ${studentsWithNotes?.length || 0}명)`,
       sheetUrl: SPREADSHEET_URL,
     }
   } catch (error) {

@@ -119,7 +119,7 @@ const GRADE1_STUDENTS: { studentId: string; name: string; seatId: string; reside
   { studentId: '11115', name: '안서연', seatId: '4A030', residenceType: 'commute' },
   { studentId: '11117', name: '왕영서', seatId: '4A047', residenceType: 'commute' },
   { studentId: '11122', name: '이채원', seatId: '4A025', residenceType: 'commute' },
-  { studentId: '11125', name: '전서희', seatId: '4A036', residenceType: 'commute' },
+  // { studentId: '11125', name: '전서희', seatId: '4A036' } - 제거됨 (2026-01-07)
   { studentId: '11201', name: '강빛나', seatId: '4A121', residenceType: 'dormitory' },
   { studentId: '11202', name: '강서진', seatId: '4D087', residenceType: 'dormitory' },
   { studentId: '11203', name: '강태준', seatId: '4D084', residenceType: 'dormitory' },
@@ -147,7 +147,7 @@ const GRADE1_STUDENTS: { studentId: string; name: string; seatId: string; reside
 // 2학년 학생 목록 (확정 좌석배치 - 최종)
 const GRADE2_STUDENTS: { studentId: string; name: string; seatId: string; residenceType: ResidenceType }[] = [
   { studentId: '20104', name: '김민서', seatId: '3D091', residenceType: 'dormitory' },
-  { studentId: '20105', name: '김성윤', seatId: '3D028', residenceType: 'commute' },
+  { studentId: '20105', name: '김성윤', seatId: '3D055', residenceType: 'commute' },
   { studentId: '20109', name: '김지은', seatId: '3D092', residenceType: 'dormitory' },
   { studentId: '20111', name: '박서현', seatId: '3D101', residenceType: 'commute' },
   { studentId: '20116', name: '양우빈', seatId: '3A116', residenceType: 'dormitory' },
@@ -187,7 +187,7 @@ const GRADE2_STUDENTS: { studentId: string; name: string; seatId: string; reside
   { studentId: '20424', name: '이효찬', seatId: '3D016', residenceType: 'dormitory' },
   { studentId: '20428', name: '정채은', seatId: '3D104', residenceType: 'dormitory' },
   { studentId: '20501', name: '강리안', seatId: '3D062', residenceType: 'dormitory' },
-  { studentId: '20506', name: '김시현', seatId: '3D122', residenceType: 'commute' },
+  { studentId: '20506', name: '김시현', seatId: '3D028', residenceType: 'commute' },
   { studentId: '20511', name: '박태현', seatId: '3D017', residenceType: 'commute' },
   { studentId: '20512', name: '배성훈', seatId: '3A121', residenceType: 'commute' },
   { studentId: '20514', name: '복준서', seatId: '3B042', residenceType: 'dormitory' },

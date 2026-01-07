@@ -65,9 +65,7 @@ export function usePreAbsences(): UsePreAbsencesResult {
     )
     if (!entry) return null
     return {
-      reason: entry.type === '외박'
-        ? (entry.reason ? `외박 (${entry.reason})` : '외박')
-        : entry.reason,
+      reason: entry.reason || '',  // 순수 사유만 반환
       type: entry.type,
       startDate: entry.startDate,
       endDate: entry.endDate

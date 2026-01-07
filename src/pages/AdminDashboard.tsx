@@ -5,8 +5,8 @@ import { getStudentBySeatId, searchStudentByName, type StudentSearchResult } fro
 import BugReportModal, { type BugReport } from '../components/BugReportModal'
 import { SEAT_LAYOUTS } from '../config/seatLayouts'
 import { fetchTodayStaff, isTemporaryPeriod, type TodayStaff } from '../config/staffSchedule'
-import { exportToClipboard, exportToGoogleSheets, isAppsScriptConfigured, getSheetName, type AbsentStudent } from '../services/googleSheets'
-import { sendAbsentSms, type SmsResult } from '../services/smsService'
+import { exportToClipboard, exportToGoogleSheets, isAppsScriptConfigured, getSheetName, type AbsentStudent, type StudentWithNote } from '../services/googleSheets'
+// SMS 서비스는 이제 수동 발송으로 변경됨
 import { usePreAbsences } from '../hooks/usePreAbsences'
 import { getTodayKST } from '../utils/date'
 import { zoneAttendanceService, type ZoneAttendanceData } from '../services/zoneAttendanceService'
@@ -273,8 +273,8 @@ export default function AdminDashboard() {
   const [isExporting, setIsExporting] = useState(false)
   const [showSmsModal, setShowSmsModal] = useState(false)
   const [smsMessage, setSmsMessage] = useState<string | null>(null)
-  const [isSendingSms, setIsSendingSms] = useState(false)
-  const [smsResult, setSmsResult] = useState<SmsResult | null>(null)
+  const [showNotesModal, setShowNotesModal] = useState(false)
+  const [excludePreAbsence, setExcludePreAbsence] = useState(false)
 
   // 스프레드시트에서 사전결석/외박 데이터 로드
   const { getPreAbsenceInfo } = usePreAbsences()
@@ -282,6 +282,7 @@ export default function AdminDashboard() {
   // Supabase에서 출결 데이터 로드
   const [supabaseData, setSupabaseData] = useState<Map<string, Map<string, AttendanceRecord>>>(new Map())
   const [supabaseRecorders, setSupabaseRecorders] = useState<Map<string, string>>(new Map())
+  const [supabaseNotes, setSupabaseNotes] = useState<Record<string, string>>({})
 
   // Supabase 데이터 로드 및 실시간 구독
   useEffect(() => {
@@ -292,6 +293,7 @@ export default function AdminDashboard() {
 
         const dataMap = new Map<string, Map<string, AttendanceRecord>>()
         const recordersMap = new Map<string, string>()
+        let allNotes: Record<string, string> = {}
 
         allData.forEach((zoneData: ZoneAttendanceData) => {
           if (zoneData.data && Array.isArray(zoneData.data)) {
@@ -300,10 +302,14 @@ export default function AdminDashboard() {
           if (zoneData.recorded_by) {
             recordersMap.set(zoneData.zone_id, zoneData.recorded_by)
           }
+          if (zoneData.notes) {
+            allNotes = { ...allNotes, ...zoneData.notes }
+          }
         })
 
         setSupabaseData(dataMap)
         setSupabaseRecorders(recordersMap)
+        setSupabaseNotes(allNotes)
       } catch (err) {
         console.error('[AdminDashboard] Supabase load error:', err)
       }
@@ -317,6 +323,7 @@ export default function AdminDashboard() {
 
       const dataMap = new Map<string, Map<string, AttendanceRecord>>()
       const recordersMap = new Map<string, string>()
+      let allNotes: Record<string, string> = {}
 
       allData.forEach((zoneData: ZoneAttendanceData) => {
         if (zoneData.data && Array.isArray(zoneData.data)) {
@@ -325,10 +332,14 @@ export default function AdminDashboard() {
         if (zoneData.recorded_by) {
           recordersMap.set(zoneData.zone_id, zoneData.recorded_by)
         }
+        if (zoneData.notes) {
+          allNotes = { ...allNotes, ...zoneData.notes }
+        }
       })
 
       setSupabaseData(dataMap)
       setSupabaseRecorders(recordersMap)
+      setSupabaseNotes(allNotes)
     })
 
     return () => {
@@ -757,18 +768,27 @@ export default function AdminDashboard() {
   const grade1Zones = filteredSummaries.filter((z) => z.grade === 1)
   const grade2Zones = filteredSummaries.filter((z) => z.grade === 2)
 
-  // 학생 특이사항 불러오기
+  // 학생 특이사항 불러오기 (Supabase + localStorage 병합)
   const studentNotes = useMemo(() => {
+    let notes: Record<string, string> = {}
+
+    // localStorage에서 불러오기
     try {
       const notesData = localStorage.getItem(`student_notes_${date}`)
       if (notesData) {
-        return JSON.parse(notesData) as Record<string, string>
+        notes = JSON.parse(notesData) as Record<string, string>
       }
     } catch {
-      // 파싱 실패 시 빈 객체
+      // 파싱 실패 시 무시
     }
-    return {}
-  }, [date])
+
+    // Supabase 데이터로 덮어쓰기 (서버 데이터 우선)
+    if (Object.keys(supabaseNotes).length > 0) {
+      notes = { ...notes, ...supabaseNotes }
+    }
+
+    return notes
+  }, [date, supabaseNotes])
 
   // 결석자 목록 (내보내기용)
   const absentStudentsForExport = useMemo(() => {
@@ -796,7 +816,11 @@ export default function AdminDashboard() {
                 // 사전결석/외박 사유
                 const preAbsInfo = getPreAbsenceInfo(student.studentId, date)
                 if (preAbsInfo) {
-                  parts.push(`[${preAbsInfo.type}] ${preAbsInfo.reason}`)
+                  if (preAbsInfo.reason) {
+                    parts.push(`[${preAbsInfo.type}] ${preAbsInfo.reason}`)
+                  } else {
+                    parts.push(`[${preAbsInfo.type}]`)
+                  }
                 }
 
                 // 학생별 특이사항 (별도 localStorage에서)
@@ -815,6 +839,47 @@ export default function AdminDashboard() {
                   name: student.name,
                   note: parts.join(' / '),
                   grade: zone.grade,
+                })
+              }
+            }
+          }
+        })
+      })
+    })
+
+    // 좌석번호 순으로 정렬
+    result.sort((a, b) => a.seatId.localeCompare(b.seatId))
+
+    return result
+  }, [selectedDateData, studentNotes, getPreAbsenceInfo, date])
+
+  // 특이사항이 있는 학생 목록 (출석/결석 상관없이 모든 특이사항 학생)
+  const studentsWithNotes = useMemo(() => {
+    const result: (StudentWithNote & { status: 'present' | 'absent' | 'unchecked' })[] = []
+
+    ZONES.forEach((zone) => {
+      const layout = SEAT_LAYOUTS[zone.id]
+      if (!layout) return
+
+      const records = selectedDateData.get(zone.id) || new Map()
+
+      layout.forEach((row) => {
+        if (row[0] === 'br') return
+        row.forEach((cell) => {
+          if (cell !== 'sp' && cell !== 'empty' && cell !== 'br') {
+            const seatId = cell as string
+            const student = getStudentBySeatId(seatId)
+            if (student) {
+              const record = records.get(seatId)
+              const note = studentNotes[seatId] || record?.note
+              // 특이사항이 있는 모든 학생 (출석/결석 무관)
+              if (note) {
+                result.push({
+                  seatId,
+                  name: student.name,
+                  note,
+                  grade: zone.grade,
+                  status: record?.status || 'unchecked',
                 })
               }
             }
@@ -846,7 +911,7 @@ export default function AdminDashboard() {
     setExportMessage(null)
 
     try {
-      const result = await exportToGoogleSheets(date, absentStudentsForExport)
+      const result = await exportToGoogleSheets(date, absentStudentsForExport, studentsWithNotes)
       setExportMessage(result.message)
 
       if (result.success && result.sheetUrl) {
@@ -1066,7 +1131,7 @@ export default function AdminDashboard() {
               style={{ width: `${overallCompletionRate}%` }}
             />
           </div>
-          <div className="grid grid-cols-4 gap-2 text-center text-sm">
+          <div className="grid grid-cols-5 gap-2 text-center text-sm">
             <button
               onClick={() => setSelectedStatusFilter('all')}
               className="p-2 rounded-lg hover:bg-gray-100 transition-colors"
@@ -1094,6 +1159,13 @@ export default function AdminDashboard() {
             >
               <div className="text-gray-500">미체크</div>
               <div className="font-bold text-gray-500">{overallStats.unchecked}</div>
+            </button>
+            <button
+              onClick={() => setShowNotesModal(true)}
+              className="p-2 rounded-lg hover:bg-purple-50 transition-colors"
+            >
+              <div className="text-purple-600">특이사항</div>
+              <div className="font-bold text-purple-600">{studentsWithNotes.length}</div>
             </button>
           </div>
         </div>
@@ -1709,181 +1781,298 @@ export default function AdminDashboard() {
         </div>
       )}
 
-      {/* SMS 발송 모달 */}
-      {showSmsModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white rounded-2xl w-full max-w-md overflow-hidden">
-            <div className="bg-blue-500 text-white p-4 flex items-center justify-between">
-              <h2 className="text-lg font-bold">결석자 문자 발송</h2>
-              <button
-                onClick={() => {
-                  setShowSmsModal(false)
-                  setSmsMessage(null)
-                  setSmsResult(null)
-                }}
-                className="text-white/80 hover:text-white text-2xl leading-none"
-              >
-                ×
-              </button>
-            </div>
-            <div className="p-4">
-              <div className="mb-4">
-                <div className="text-sm text-gray-500 mb-1">선택된 날짜</div>
-                <div className="font-bold text-lg">
-                  {new Date(date + 'T00:00:00').toLocaleDateString('ko-KR', {
-                    year: 'numeric',
-                    month: 'long',
-                    day: 'numeric',
-                    weekday: 'short',
-                  })}
-                </div>
-              </div>
+      {/* SMS 발송 모달 - 3카테고리 */}
+      {showSmsModal && (() => {
+        // 결석자를 3개 카테고리로 분류
+        const commuteAbsent: { studentId: string; name: string; seatId: string; isPreAbsence: boolean }[] = []
+        const dormOvernightAbsent: { studentId: string; name: string; seatId: string }[] = []
+        const dormNoOvernightAbsent: { studentId: string; name: string; seatId: string; isPreAbsence: boolean }[] = []
 
-              <div className="mb-4 p-3 bg-blue-50 rounded-lg">
-                <div className="text-sm text-gray-500 mb-2">결석자 현황</div>
-                <div className="grid grid-cols-2 gap-2 text-sm">
-                  <div>
-                    <span className="text-blue-600 font-semibold">1학년:</span>{' '}
-                    {absentStudentsForExport.filter(s => s.grade === 1).length}명
-                  </div>
-                  <div>
-                    <span className="text-green-600 font-semibold">2학년:</span>{' '}
-                    {absentStudentsForExport.filter(s => s.grade === 2).length}명
-                  </div>
-                </div>
-                <div className="mt-2 text-xs text-gray-400">
-                  총 {absentStudentsForExport.length}명
-                </div>
-              </div>
+        absentStudentsForExport.forEach((s) => {
+          const student = getStudentBySeatId(s.seatId)
+          if (!student) return
 
-              {/* 모드 안내 */}
-              <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                <div className="text-sm text-amber-700">
-                  <span className="font-semibold">현재 모드:</span>{' '}
-                  {new Date(date) < new Date('2026-01-07') ? (
-                    <>
-                      <span className="text-amber-600 font-bold">테스트</span>
-                      <span className="text-xs ml-1">(민수정 선생님에게만 발송)</span>
-                    </>
-                  ) : (
-                    <>
-                      <span className="text-green-600 font-bold">실제 발송</span>
-                      <span className="text-xs ml-1">(학생 본인 + 어머니)</span>
-                    </>
-                  )}
-                </div>
-              </div>
+          const preAbsInfo = getPreAbsenceInfo(student.studentId, date)
+          const isPreAbsence = !!preAbsInfo
 
-              {/* 결석자 목록 */}
-              {absentStudentsForExport.length > 0 && (
-                <div className="mb-4 max-h-40 overflow-y-auto">
-                  <div className="text-sm text-gray-500 mb-2">문자 발송 대상</div>
-                  <div className="space-y-1">
-                    {absentStudentsForExport.map((student) => (
-                      <div
-                        key={student.seatId}
-                        className="flex items-center gap-2 text-sm p-2 bg-gray-50 rounded"
-                      >
-                        <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
-                          student.grade === 1 ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
-                        }`}>
-                          {student.grade}학년
-                        </span>
-                        <span className="font-mono text-gray-600">{student.seatId}</span>
-                        <span className="font-medium">{student.name}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+          if (student.residenceType === 'commute') {
+            // 통학생
+            commuteAbsent.push({ studentId: student.studentId, name: student.name, seatId: s.seatId, isPreAbsence })
+          } else {
+            // 기숙사생 - 외박 여부 확인
+            if (preAbsInfo && preAbsInfo.type === '외박') {
+              // 외박 신청한 기숙사생
+              dormOvernightAbsent.push({ studentId: student.studentId, name: student.name, seatId: s.seatId })
+            } else {
+              // 외박 신청 안 한 기숙사생
+              dormNoOvernightAbsent.push({ studentId: student.studentId, name: student.name, seatId: s.seatId, isPreAbsence })
+            }
+          }
+        })
 
-              {smsMessage && (
-                <div className={`mb-4 p-3 rounded-lg text-sm ${
-                  smsMessage.includes('실패') || smsMessage.includes('오류')
-                    ? 'bg-red-50 text-red-700'
-                    : 'bg-green-50 text-green-700'
-                }`}>
-                  {smsMessage}
-                </div>
-              )}
+        // 사전결석자 제외 필터링
+        const filteredCommute = excludePreAbsence
+          ? commuteAbsent.filter(s => !s.isPreAbsence)
+          : commuteAbsent
+        const filteredDormNoOvernight = excludePreAbsence
+          ? dormNoOvernightAbsent.filter(s => !s.isPreAbsence)
+          : dormNoOvernightAbsent
 
-              {smsResult && smsResult.results && (
-                <div className="mb-4 max-h-32 overflow-y-auto">
-                  <div className="text-sm text-gray-500 mb-2">발송 결과</div>
-                  <div className="space-y-1">
-                    {smsResult.results.map((result, idx) => (
-                      <div
-                        key={idx}
-                        className={`flex items-center gap-2 text-xs p-2 rounded ${
-                          result.status === 'success' ? 'bg-green-50' : 'bg-red-50'
-                        }`}
-                      >
-                        <span className={result.status === 'success' ? 'text-green-600' : 'text-red-600'}>
-                          {result.status === 'success' ? '✓' : '✗'}
-                        </span>
-                        <span>{result.student}</span>
-                        <span className="text-gray-400">{result.message}</span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+        const copyToClipboard = async (studentIds: string[], label: string) => {
+          const text = studentIds.join('\n')
+          try {
+            await navigator.clipboard.writeText(text)
+            setSmsMessage(`${label} 학번 ${studentIds.length}명 복사됨!`)
+          } catch {
+            setSmsMessage('복사 실패')
+          }
+        }
 
-              <div className="space-y-2">
-                <button
-                  onClick={async () => {
-                    setIsSendingSms(true)
-                    setSmsMessage(null)
-                    setSmsResult(null)
-                    try {
-                      const smsStudents = absentStudentsForExport.map(s => ({
-                        studentId: s.seatId,
-                        name: s.name,
-                      }))
-                      const result = await sendAbsentSms(smsStudents)
-                      setSmsResult(result)
-                      setSmsMessage(result.message)
-                    } catch (error) {
-                      setSmsMessage(`SMS 발송 오류: ${error instanceof Error ? error.message : '알 수 없는 오류'}`)
-                    } finally {
-                      setIsSendingSms(false)
-                    }
-                  }}
-                  disabled={isSendingSms || absentStudentsForExport.length === 0}
-                  className={`w-full py-3 font-semibold rounded-xl transition-colors flex items-center justify-center gap-2
-                    ${isSendingSms || absentStudentsForExport.length === 0
-                      ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                      : 'bg-blue-500 text-white hover:bg-blue-600'
-                    }`}
-                >
-                  {isSendingSms ? (
-                    <>
-                      <svg className="animate-spin h-5 w-5" viewBox="0 0 24 24">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                      </svg>
-                      발송 중...
-                    </>
-                  ) : (
-                    <>
-                      <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" />
-                      </svg>
-                      SMS 발송하기
-                    </>
-                  )}
-                </button>
+        const MSG_COMMUTE = `안녕하세요, 충남삼성고입니다.
+본 메시지는 금일 08:30 면학실 출석 확인이 되지 않은 학생을 대상으로 자동 발송됩니다. 출석 확인은 08:30부터 면학실에서 진행되오니, 반드시 출석 체크를 완료한 후 방과후 교실로 이동해 주시기 바랍니다. 원활한 운영을 위해 협조 부탁드립니다. 감사합니다.`
+
+        const MSG_DORM_OVERNIGHT = `안녕하세요, 충남삼성고입니다.
+오늘은 방과후 수업일입니다. 귀댁의 학생이 아침 출결확인에 참여하지 않아 출석체크가 되지 않은 학부모님들께 자동으로 메시지를 보내드립니다. 출결확인 시간과 장소는 면학실(08:30)입니다. 출석 체크 후 방과후 교실로 이동할 수 있도록 협조 부탁 드립니다. 감사합니다.`
+
+        const MSG_DORM_NO_OVERNIGHT = `안녕하세요, 충남삼성고입니다.
+본 메시지는 금일 08:30 면학실 출석 확인이 되지 않은 학생을 대상으로 자동 발송됩니다. 출석 확인은 08:30부터 면학실에서 진행되오니, 반드시 출석 체크를 완료한 후 방과후 교실로 이동해 주시기 바랍니다. 원활한 운영을 위해 협조 부탁드립니다. 감사합니다.`
+
+        return (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+            <div className="bg-white rounded-2xl w-full max-w-lg max-h-[90vh] overflow-hidden flex flex-col">
+              <div className="bg-blue-500 text-white p-4 flex items-center justify-between flex-shrink-0">
+                <h2 className="text-lg font-bold">결석자 알림 발송</h2>
                 <button
                   onClick={() => {
                     setShowSmsModal(false)
                     setSmsMessage(null)
-                    setSmsResult(null)
+                  }}
+                  className="text-white/80 hover:text-white text-2xl leading-none"
+                >
+                  ×
+                </button>
+              </div>
+
+              <div className="p-4 overflow-y-auto flex-1">
+                <div className="mb-4 text-center">
+                  <div className="text-sm text-gray-500">선택된 날짜</div>
+                  <div className="font-bold">
+                    {new Date(date + 'T00:00:00').toLocaleDateString('ko-KR', {
+                      year: 'numeric', month: 'long', day: 'numeric', weekday: 'short',
+                    })}
+                  </div>
+                </div>
+
+                {smsMessage && (
+                  <div className="mb-4 p-3 rounded-lg text-sm bg-green-50 text-green-700 text-center">
+                    {smsMessage}
+                  </div>
+                )}
+
+                {/* 사전결석자 제외 체크박스 */}
+                <div className="mb-4 p-3 bg-amber-50 rounded-lg border border-amber-200">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={excludePreAbsence}
+                      onChange={(e) => setExcludePreAbsence(e.target.checked)}
+                      className="w-4 h-4 text-amber-600 rounded focus:ring-amber-500"
+                    />
+                    <span className="text-sm text-amber-800">사전결석 신청자 제외</span>
+                    {excludePreAbsence && (
+                      <span className="text-xs text-amber-600">
+                        (통학 {commuteAbsent.filter(s => s.isPreAbsence).length}명, 기숙 {dormNoOvernightAbsent.filter(s => s.isPreAbsence).length}명 제외)
+                      </span>
+                    )}
+                  </label>
+                </div>
+
+                {/* 카테고리 1: 통학생 */}
+                <div className="mb-4 p-3 bg-blue-50 rounded-xl border border-blue-200">
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <span className="font-bold text-blue-700">1. 통학생</span>
+                      <span className="ml-2 text-sm text-blue-600">({filteredCommute.length}명)</span>
+                    </div>
+                    <span className="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">학생+학부모 / 앱 또는 문자</span>
+                  </div>
+                  {filteredCommute.length > 0 ? (
+                    <>
+                      <div className="text-xs text-gray-600 mb-2 bg-white p-2 rounded max-h-20 overflow-y-auto">
+                        {filteredCommute.map(s => `${s.studentId} ${s.name}`).join(', ')}
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => copyToClipboard(filteredCommute.map(s => s.studentId), '통학생')}
+                          className="flex-1 py-2 bg-blue-500 text-white text-sm font-medium rounded-lg hover:bg-blue-600"
+                        >
+                          학번 복사 ({filteredCommute.length}명)
+                        </button>
+                        <button
+                          onClick={() => navigator.clipboard.writeText(MSG_COMMUTE)}
+                          className="px-3 py-2 bg-blue-100 text-blue-700 text-sm rounded-lg hover:bg-blue-200"
+                        >
+                          문구 복사
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-sm text-gray-400 text-center py-2">해당 없음</div>
+                  )}
+                </div>
+
+                {/* 카테고리 2: 기숙사 + 외박신청 */}
+                <div className="mb-4 p-3 bg-indigo-50 rounded-xl border border-indigo-200">
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <span className="font-bold text-indigo-700">2. 기숙사 (외박 신청)</span>
+                      <span className="ml-2 text-sm text-indigo-600">({dormOvernightAbsent.length}명)</span>
+                    </div>
+                    <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded">학부모만 / 문자만</span>
+                  </div>
+                  {dormOvernightAbsent.length > 0 ? (
+                    <>
+                      <div className="text-xs text-gray-600 mb-2 bg-white p-2 rounded max-h-20 overflow-y-auto">
+                        {dormOvernightAbsent.map(s => `${s.studentId} ${s.name}`).join(', ')}
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => copyToClipboard(dormOvernightAbsent.map(s => s.studentId), '기숙(외박)')}
+                          className="flex-1 py-2 bg-indigo-500 text-white text-sm font-medium rounded-lg hover:bg-indigo-600"
+                        >
+                          학번 복사 ({dormOvernightAbsent.length}명)
+                        </button>
+                        <button
+                          onClick={() => navigator.clipboard.writeText(MSG_DORM_OVERNIGHT)}
+                          className="px-3 py-2 bg-indigo-100 text-indigo-700 text-sm rounded-lg hover:bg-indigo-200"
+                        >
+                          문구 복사
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-sm text-gray-400 text-center py-2">해당 없음</div>
+                  )}
+                </div>
+
+                {/* 카테고리 3: 기숙사 + 외박X */}
+                <div className="mb-4 p-3 bg-purple-50 rounded-xl border border-purple-200">
+                  <div className="flex items-center justify-between mb-2">
+                    <div>
+                      <span className="font-bold text-purple-700">3. 기숙사 (외박 미신청)</span>
+                      <span className="ml-2 text-sm text-purple-600">({filteredDormNoOvernight.length}명)</span>
+                    </div>
+                    <span className="text-xs bg-purple-100 text-purple-700 px-2 py-1 rounded">학생만 / 앱 또는 문자</span>
+                  </div>
+                  {filteredDormNoOvernight.length > 0 ? (
+                    <>
+                      <div className="text-xs text-gray-600 mb-2 bg-white p-2 rounded max-h-20 overflow-y-auto">
+                        {filteredDormNoOvernight.map(s => `${s.studentId} ${s.name}`).join(', ')}
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          onClick={() => copyToClipboard(filteredDormNoOvernight.map(s => s.studentId), '기숙(외박X)')}
+                          className="flex-1 py-2 bg-purple-500 text-white text-sm font-medium rounded-lg hover:bg-purple-600"
+                        >
+                          학번 복사 ({filteredDormNoOvernight.length}명)
+                        </button>
+                        <button
+                          onClick={() => navigator.clipboard.writeText(MSG_DORM_NO_OVERNIGHT)}
+                          className="px-3 py-2 bg-purple-100 text-purple-700 text-sm rounded-lg hover:bg-purple-200"
+                        >
+                          문구 복사
+                        </button>
+                      </div>
+                    </>
+                  ) : (
+                    <div className="text-sm text-gray-400 text-center py-2">해당 없음</div>
+                  )}
+                </div>
+
+                {/* 사용 안내 */}
+                <div className="p-3 bg-gray-50 rounded-lg text-xs text-gray-500">
+                  <div className="font-medium mb-1">사용 방법:</div>
+                  <ol className="list-decimal list-inside space-y-1">
+                    <li>각 카테고리의 "학번 복사" 클릭</li>
+                    <li>주소록에서 학번으로 검색하여 선택</li>
+                    <li>"문구 복사" 후 메시지 작성란에 붙여넣기</li>
+                    <li>앱/문자 선택 후 발송</li>
+                  </ol>
+                </div>
+              </div>
+
+              <div className="p-4 border-t flex-shrink-0">
+                <button
+                  onClick={() => {
+                    setShowSmsModal(false)
+                    setSmsMessage(null)
                   }}
                   className="w-full py-2 bg-gray-100 text-gray-700 font-medium rounded-xl hover:bg-gray-200 transition-colors"
                 >
                   닫기
                 </button>
               </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* 특이사항 학생 모달 */}
+      {showNotesModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-2xl w-full max-w-md max-h-[80vh] overflow-hidden flex flex-col">
+            <div className="bg-purple-500 text-white p-4 flex items-center justify-between">
+              <h2 className="text-lg font-bold">특이사항 학생 ({studentsWithNotes.length}명)</h2>
+              <button
+                onClick={() => setShowNotesModal(false)}
+                className="text-white/80 hover:text-white text-2xl leading-none"
+              >
+                ×
+              </button>
+            </div>
+            <div className="p-4 overflow-y-auto flex-1">
+              {studentsWithNotes.length > 0 ? (
+                <div className="space-y-2">
+                  {studentsWithNotes.map((student) => (
+                    <div
+                      key={student.seatId}
+                      className="p-3 bg-purple-50 rounded-lg border border-purple-100"
+                    >
+                      <div className="flex items-center gap-2 mb-1">
+                        <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+                          student.grade === 1 ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'
+                        }`}>
+                          {student.grade}학년
+                        </span>
+                        <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${
+                          student.status === 'present' ? 'bg-green-100 text-green-700' :
+                          student.status === 'absent' ? 'bg-red-100 text-red-700' :
+                          'bg-gray-100 text-gray-700'
+                        }`}>
+                          {student.status === 'present' ? '출석' : student.status === 'absent' ? '결석' : '미체크'}
+                        </span>
+                        <span className="font-mono text-gray-600 text-sm">{student.seatId}</span>
+                        <span className="font-medium">{student.name}</span>
+                      </div>
+                      <div className="text-sm text-purple-700 bg-purple-100 p-2 rounded">
+                        {student.note}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-center text-gray-500 py-12">
+                  특이사항이 기재된 학생이 없습니다
+                </div>
+              )}
+            </div>
+            <div className="p-4 border-t">
+              <button
+                onClick={() => setShowNotesModal(false)}
+                className="w-full py-2 bg-gray-100 text-gray-700 font-medium rounded-xl hover:bg-gray-200 transition-colors"
+              >
+                닫기
+              </button>
             </div>
           </div>
         </div>

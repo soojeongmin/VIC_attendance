@@ -92,6 +92,8 @@ export default function AttendancePage() {
   const [hasTempSave, setHasTempSave] = useState(false)
   const [studentNotes, setStudentNotes] = useState<Record<string, string>>({})
   const [preAbsenceProcessed, setPreAbsenceProcessed] = useState(false)
+  const [supabaseRecordedBy, setSupabaseRecordedBy] = useState<string | null>(null)
+  const [isLoadingSupabase, setIsLoadingSupabase] = useState(true)
 
   // 스프레드시트에서 사전결석/외박 데이터 로드
   const { entries: preAbsenceEntries, getPreAbsenceInfo, isLoading: preAbsenceLoading } = usePreAbsences()
@@ -142,58 +144,133 @@ export default function AttendancePage() {
     setStudentNotes(getAllStudentNotes(dateKey))
   }, [dateKey])
 
-  // 저장된 데이터 또는 임시저장 데이터 복원
+  // Supabase에서 데이터 로드 및 실시간 구독
   useEffect(() => {
-    // 관리자에서 특정 날짜 데이터를 보러 온 경우 - navigation state에서 직접 가져옴
+    if (!zoneId) return
+
+    // 관리자에서 특정 날짜 데이터를 보러 온 경우 - Supabase에서 notes도 로드
     if (fromAdmin && viewDate && viewData) {
-      try {
-        const restoredRecords = new Map(viewData)
-        setAttendanceRecords(restoredRecords)
-        setHasTempSave(false)
-        setHasChanges(false)
-        setPreAbsenceProcessed(true) // 조회 모드에서는 사전결석 처리 불필요
-        return
-      } catch (e) {
-        console.error('조회 데이터 복원 실패:', e)
+      const loadAdminView = async () => {
+        try {
+          const restoredRecords = new Map(viewData)
+          setAttendanceRecords(restoredRecords)
+          setHasTempSave(false)
+          setHasChanges(false)
+          setPreAbsenceProcessed(true)
+
+          // Supabase에서 notes 로드
+          const supabaseData = await zoneAttendanceService.get(zoneId, viewDate)
+          if (supabaseData?.notes) {
+            setStudentNotes(supabaseData.notes)
+          }
+        } catch (e) {
+          console.error('조회 데이터 복원 실패:', e)
+        } finally {
+          setIsLoadingSupabase(false)
+        }
       }
+      loadAdminView()
+      return
     }
 
-    // 먼저 정식 저장된 데이터 확인
-    const savedDataKey = `attendance_saved_${zoneId}_${todayKey}`
-    const savedData = localStorage.getItem(savedDataKey)
-    if (savedData) {
-      try {
-        const parsed = JSON.parse(savedData) as [string, AttendanceRecord][]
-        const restoredRecords = new Map(parsed)
-        setAttendanceRecords(restoredRecords)
-        setHasTempSave(false)
-        setHasChanges(false) // 이미 저장된 상태이므로 변경사항 없음
-        setPreAbsenceProcessed(true) // 저장된 데이터가 있으면 사전결석 처리 불필요
-        return
-      } catch (e) {
-        console.error('저장된 데이터 복원 실패:', e)
+    const loadData = async () => {
+      setIsLoadingSupabase(true)
+
+      // 1. 먼저 내 임시저장 데이터 확인 (작업 중이던 것)
+      const tempData = localStorage.getItem(getTempSaveKey())
+      if (tempData) {
+        try {
+          const parsed = JSON.parse(tempData) as [string, AttendanceRecord][]
+          const restoredRecords = new Map(parsed)
+          setAttendanceRecords(restoredRecords)
+          setHasTempSave(true)
+          setHasChanges(true)
+          setPreAbsenceProcessed(true)
+          setIsLoadingSupabase(false)
+          console.log('[AttendancePage] Restored from temp save')
+          return
+        } catch (e) {
+          console.error('임시저장 데이터 복원 실패:', e)
+        }
       }
+
+      // 2. Supabase에서 데이터 확인 (다른 담당자가 저장한 것 포함)
+      try {
+        const supabaseData = await zoneAttendanceService.get(zoneId, todayKey)
+        if (supabaseData) {
+          console.log('[AttendancePage] Loaded from Supabase:', supabaseData.recorded_by)
+          const records = new Map<string, AttendanceRecord>(supabaseData.data)
+          setAttendanceRecords(records)
+          setSupabaseRecordedBy(supabaseData.recorded_by || null)
+          setHasTempSave(false)
+          setHasChanges(false)
+          setPreAbsenceProcessed(true)
+
+          // Supabase 특이사항도 로드
+          if (supabaseData.notes) {
+            setStudentNotes(supabaseData.notes)
+          }
+
+          // localStorage에도 백업
+          localStorage.setItem(`attendance_saved_${zoneId}_${todayKey}`, JSON.stringify(Array.from(records.entries())))
+          if (supabaseData.recorded_by) {
+            localStorage.setItem(`attendance_recorder_${zoneId}_${todayKey}`, supabaseData.recorded_by)
+          }
+
+          setIsLoadingSupabase(false)
+          return
+        }
+      } catch (err) {
+        console.error('[AttendancePage] Supabase load error:', err)
+      }
+
+      // 3. Supabase 실패 시 localStorage 확인
+      const savedDataKey = `attendance_saved_${zoneId}_${todayKey}`
+      const savedData = localStorage.getItem(savedDataKey)
+      if (savedData) {
+        try {
+          const parsed = JSON.parse(savedData) as [string, AttendanceRecord][]
+          const restoredRecords = new Map(parsed)
+          setAttendanceRecords(restoredRecords)
+          const recorder = localStorage.getItem(`attendance_recorder_${zoneId}_${todayKey}`)
+          setSupabaseRecordedBy(recorder)
+          setHasTempSave(false)
+          setHasChanges(false)
+          setPreAbsenceProcessed(true)
+          setIsLoadingSupabase(false)
+          return
+        } catch (e) {
+          console.error('저장된 데이터 복원 실패:', e)
+        }
+      }
+
+      // 4. 아무 데이터도 없으면 사전결석 처리 대기
+      setPreAbsenceProcessed(false)
+      setIsLoadingSupabase(false)
     }
 
-    // 저장된 데이터가 없으면 임시저장 데이터 확인
-    const tempData = localStorage.getItem(getTempSaveKey())
-    if (tempData) {
-      try {
-        const parsed = JSON.parse(tempData) as [string, AttendanceRecord][]
-        const restoredRecords = new Map(parsed)
-        setAttendanceRecords(restoredRecords)
-        setHasTempSave(true)
-        setHasChanges(true)
-        setPreAbsenceProcessed(true) // 임시저장 데이터가 있으면 사전결석 처리 불필요
-        return
-      } catch (e) {
-        console.error('임시저장 데이터 복원 실패:', e)
-      }
-    }
+    loadData()
 
-    // 저장된 데이터가 없으면 사전결석 처리 대기
-    setPreAbsenceProcessed(false)
-  }, [zoneId, todayKey, fromAdmin, viewDate, viewData])
+    // 실시간 구독 설정
+    const unsubscribe = zoneAttendanceService.subscribeToDate(todayKey, (allZoneData) => {
+      // 현재 구역의 데이터만 확인
+      const myZoneData = allZoneData.find(d => d.zone_id === zoneId)
+      if (myZoneData && !hasChanges) {
+        // 내가 수정 중이 아닐 때만 업데이트
+        console.log('[AttendancePage] Realtime update for zone:', zoneId)
+        const records = new Map<string, AttendanceRecord>(myZoneData.data)
+        setAttendanceRecords(records)
+        setSupabaseRecordedBy(myZoneData.recorded_by || null)
+        if (myZoneData.notes) {
+          setStudentNotes(myZoneData.notes)
+        }
+      }
+    })
+
+    return () => {
+      unsubscribe()
+    }
+  }, [zoneId, todayKey, fromAdmin, viewDate, viewData, hasChanges])
 
   // 사전 결석 학생 자동 결석 처리 (스프레드시트 데이터 로드 후)
   useEffect(() => {
@@ -491,6 +568,10 @@ export default function AttendancePage() {
               <span className="text-sm bg-purple-100 text-purple-700 px-3 py-1 rounded-full">
                 기록자: {adminRecordedBy}
               </span>
+            ) : supabaseRecordedBy && !hasChanges ? (
+              <span className="text-sm bg-blue-100 text-blue-700 px-3 py-1 rounded-full">
+                저장됨: {supabaseRecordedBy}
+              </span>
             ) : currentStaff ? (
               <span className="text-sm bg-primary-100 text-primary-700 px-3 py-1 rounded-full">
                 기록자: {currentStaff.name}
@@ -546,17 +627,29 @@ export default function AttendancePage() {
 
       {/* Seat map */}
       <div className="flex-1 overflow-hidden p-4">
-        <PinchZoomContainer>
-          <SeatMap
-            zoneId={zoneId || ''}
-            attendanceRecords={attendanceRecords}
-            studentNotes={studentNotes}
-            dateKey={dateKey}
-            preAbsenceEntries={preAbsenceEntries}
-            onSeatClick={handleSeatClick}
-            onSeatLongPress={handleSeatLongPress}
-          />
-        </PinchZoomContainer>
+        {isLoadingSupabase ? (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-center">
+              <svg className="animate-spin h-8 w-8 text-primary-500 mx-auto mb-2" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+              </svg>
+              <div className="text-gray-500 text-sm">데이터 불러오는 중...</div>
+            </div>
+          </div>
+        ) : (
+          <PinchZoomContainer>
+            <SeatMap
+              zoneId={zoneId || ''}
+              attendanceRecords={attendanceRecords}
+              studentNotes={studentNotes}
+              dateKey={dateKey}
+              preAbsenceEntries={preAbsenceEntries}
+              onSeatClick={handleSeatClick}
+              onSeatLongPress={handleSeatLongPress}
+            />
+          </PinchZoomContainer>
+        )}
       </div>
 
       {/* 알림 모달 */}
